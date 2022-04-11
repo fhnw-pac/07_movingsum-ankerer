@@ -28,7 +28,8 @@ using namespace std;
 
 #define RADIUS      10
 #define BLOCKSIZE   512
-#define WIDTH       65536
+//#define WIDTH       65536
+#define WIDTH       1024
 
 /* This is our CUDA call wrapper, we will use in PAC.
 *
@@ -61,7 +62,36 @@ inline void gpuAssert(cudaError_t code, const char* file, int line, bool abort =
 */
 __global__ void movingSumSharedMemStatic(int* vec, int* result_vec, int size)
 {
-    //ToDo
+    __shared__ int shm_vec[BLOCKSIZE + 2 * RADIUS];
+    int thread_id = blockIdx.x * blockDim.x + threadIdx.x;
+
+    shm_vec[threadIdx.x + RADIUS] = vec[thread_id];
+
+    if (threadIdx.x < RADIUS) {
+        if (thread_id - RADIUS < 0) {
+            shm_vec[threadIdx.x] = 0;
+        }
+        else {
+            shm_vec[threadIdx.x] = vec[thread_id - RADIUS];
+        }
+    }
+    else if (threadIdx.x > BLOCKSIZE - RADIUS) {
+        if (thread_id + RADIUS >= size) {
+            shm_vec[threadIdx.x + 2 * RADIUS] = 0;
+        }
+        else {
+            shm_vec[threadIdx.x + 2 * RADIUS] = vec[thread_id + RADIUS];
+        }
+    }
+
+    __syncthreads();
+
+    int result = 0;
+    for (int offset = -RADIUS; offset <= RADIUS; offset++) {
+        result += shm_vec[threadIdx.x + RADIUS + offset];
+    }
+
+    result_vec[thread_id] = result;
 }
 
 
@@ -78,7 +108,6 @@ __global__ void movingSumSharedMemStatic(int* vec, int* result_vec, int size)
 */
 __global__ void movingSumSharedMemDynamic(int* vec, int* result_vec, int size)
 {
-    //ToDo
 }
 
 
@@ -217,20 +246,20 @@ int main(void)
     gpuErrCheck(cudaPeekAtLastError());
     //ToDo: movingSumSharedMemDynamic <<<nbr_blocks, BLOCKSIZE, ?????????? >>> (deviceVecInput, deviceVecOutput3, WIDTH);
     gpuErrCheck(cudaPeekAtLastError());
-    movingSumAtomics << <nbr_blocks, BLOCKSIZE >> > (deviceVecInput, deviceVecOutput4, WIDTH);
+    //movingSumAtomics << <nbr_blocks, BLOCKSIZE >> > (deviceVecInput, deviceVecOutput4, WIDTH);
     gpuErrCheck(cudaPeekAtLastError());
 
     // Copy the result stored in device_y back to host_y
     gpuErrCheck(cudaMemcpy(hostVecOutputGPU1, deviceVecOutput1, WIDTH * sizeof(int), cudaMemcpyDeviceToHost));
     gpuErrCheck(cudaMemcpy(hostVecOutputGPU2, deviceVecOutput2, WIDTH * sizeof(int), cudaMemcpyDeviceToHost));
-    gpuErrCheck(cudaMemcpy(hostVecOutputGPU3, deviceVecOutput3, WIDTH * sizeof(int), cudaMemcpyDeviceToHost));
-    gpuErrCheck(cudaMemcpy(hostVecOutputGPU4, deviceVecOutput4, WIDTH * sizeof(int), cudaMemcpyDeviceToHost));
+    /*gpuErrCheck(cudaMemcpy(hostVecOutputGPU3, deviceVecOutput3, WIDTH * sizeof(int), cudaMemcpyDeviceToHost));
+    gpuErrCheck(cudaMemcpy(hostVecOutputGPU4, deviceVecOutput4, WIDTH * sizeof(int), cudaMemcpyDeviceToHost));*/
 
     // Check for errors in result
     auto ret = compareResultVec(hostVecOutputCPU, hostVecOutputGPU1, WIDTH);
     ret = compareResultVec(hostVecOutputCPU, hostVecOutputGPU2, WIDTH);
-    ret = compareResultVec(hostVecOutputCPU, hostVecOutputGPU3, WIDTH);
-    ret = compareResultVec(hostVecOutputCPU, hostVecOutputGPU4, WIDTH);
+    /*ret = compareResultVec(hostVecOutputCPU, hostVecOutputGPU3, WIDTH);
+    ret = compareResultVec(hostVecOutputCPU, hostVecOutputGPU4, WIDTH);*/
 
     // Free memory on device & host
     cudaFree(deviceVecInput);
